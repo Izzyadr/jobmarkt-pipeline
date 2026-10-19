@@ -99,4 +99,3 @@ def analysiere(titel: str, beschreibung: str) -> StellenAnalyse:
     analyse.tools = normalisiere(analyse.tools)
     analyse.skills = normalisiere(analyse.skills)
     return analyse
-

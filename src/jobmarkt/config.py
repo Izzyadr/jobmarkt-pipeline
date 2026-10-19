@@ -1,4 +1,3 @@
-
 """Zentrale Einstellungen der Pipeline."""
 
 from pathlib import Path
@@ -30,5 +29,5 @@ SEITEN_GROESSE = 50  # Anzeigen pro Seite
 
 # LLM-Einstellungen
 LLM_MODELL = "claude-haiku-5-5"
-MAX_EXTRAKTIONEN_PRO_LAUF = 60# Kostenbremse
+MAX_EXTRAKTIONEN_PRO_LAUF = 60  # Kostenbremse
 MAX_ZEICHEN_BESCHREIBUNG = 6000

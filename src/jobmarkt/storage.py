@@ -1,4 +1,3 @@
-
 """Speicherung in DuckDB: eine Tabelle für Anzeigen, eine für LLM-Ergebnisse."""
 
 from pathlib import Path
