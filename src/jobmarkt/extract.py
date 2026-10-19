@@ -6,6 +6,7 @@ import anthropic
 from pydantic import BaseModel, Field
 
 from jobmarkt import config
+from jobmarkt.bereinigung import bereinige_skills, bereinige_tools
 
 
 class StellenAnalyse(BaseModel):
@@ -71,17 +72,6 @@ def _hole_client() -> anthropic.Anthropic:
     return _client
 
 
-def normalisiere(liste: list[str]) -> list[str]:
-    """Entfernt Leerzeichen und Dubletten, behält die Reihenfolge."""
-    gesehen, ergebnis = set(), []
-    for eintrag in liste:
-        sauber = eintrag.strip()
-        if sauber and sauber.lower() not in gesehen:
-            gesehen.add(sauber.lower())
-            ergebnis.append(sauber)
-    return ergebnis
-
-
 def analysiere(titel: str, beschreibung: str) -> StellenAnalyse:
     """Schickt eine Anzeige an das LLM und bekommt ein geprüftes Ergebnis zurück."""
     text = beschreibung[: config.MAX_ZEICHEN_BESCHREIBUNG]
@@ -96,6 +86,6 @@ def analysiere(titel: str, beschreibung: str) -> StellenAnalyse:
     analyse = antwort.parsed_output
     if analyse is None:  # z. B. Antwort abgebrochen oder abgelehnt
         raise ValueError(f"Keine gültige Antwort (stop_reason={antwort.stop_reason})")
-    analyse.tools = normalisiere(analyse.tools)
-    analyse.skills = normalisiere(analyse.skills)
+    analyse.tools = bereinige_tools(analyse.tools)
+    analyse.skills = bereinige_skills(analyse.skills)
     return analyse

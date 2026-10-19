@@ -3,8 +3,9 @@
 import pytest
 from pydantic import ValidationError
 
-from jobmarkt import fetch, storage
-from jobmarkt.extract import StellenAnalyse, normalisiere
+from jobmarkt import fetch, pipeline, storage
+from jobmarkt.bereinigung import bereinige_tools, normalisiere
+from jobmarkt.extract import StellenAnalyse
 
 # So sieht eine Anzeige in der Antwort der BA-API (v6) aus - gekürzt
 BEISPIEL = {
@@ -76,3 +77,30 @@ def test_schema_lehnt_falsche_werte_ab():
 
 def test_normalisiere():
     assert normalisiere([" Python", "python", "SQL", ""]) == ["Python", "SQL"]
+
+
+def test_bereinige_tools():
+    roh = ["Microsoft Azure", "Azure", "MS SQL Server", "GCP", "Python"]
+    assert bereinige_tools(roh) == ["Azure", "SQL Server", "Google Cloud", "Python"]
+
+
+def test_bereinige_tools_begrenzt_auf_10():
+    assert len(bereinige_tools([f"Tool {i}" for i in range(15)])) == 10
+
+
+def test_bereinigung_alter_daten(tmp_path):
+    con = storage.verbinde(tmp_path / "test.duckdb")
+    analyse = {
+        "rolle": "Data Engineer",
+        "level": "Mid",
+        "tools": ["Apache Spark", "Spark", "Microsoft Fabric"],
+        "skills": [],
+        "sprachen": [],
+        "remote": "hybrid",
+        "erfahrung_jahre": 3,
+    }
+    storage.speichere_analyse(con, "10001-123-S", analyse)
+    assert pipeline.schritt_bereinigen(con) == 1
+    assert pipeline.schritt_bereinigen(con) == 0  # zweiter Lauf: nichts mehr zu tun
+    tools = con.execute("SELECT tools FROM analysen").fetchone()[0]
+    assert tools == ["Spark", "Fabric"]

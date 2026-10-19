@@ -104,3 +104,15 @@ def speichere_analyse(con, refnr: str, analyse: dict) -> None:
             analyse["erfahrung_jahre"],
         ],
     )
+
+
+def alle_listen(con) -> list[tuple]:
+    """Tools und Skills aller Analysen (für die Bereinigung)."""
+    return con.execute("SELECT refnr, tools, skills FROM analysen").fetchall()
+
+
+def aktualisiere_listen(con, refnr: str, tools: list[str], skills: list[str]) -> None:
+    con.execute(
+        "UPDATE analysen SET tools = ?, skills = ? WHERE refnr = ?",
+        [tools, skills, refnr],
+    )

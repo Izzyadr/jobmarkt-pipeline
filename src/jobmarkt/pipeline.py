@@ -6,7 +6,7 @@ Start mit:  uv run python -m jobmarkt.pipeline
 import argparse
 import logging
 
-from jobmarkt import config, fetch, storage
+from jobmarkt import bereinigung, config, fetch, storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("pipeline")
@@ -47,6 +47,21 @@ def schritt_analysieren(con) -> int:
     return fertig
 
 
+def schritt_bereinigen(con) -> int:
+    """Phase 3: aktuelle Bereinigungsregeln auf alle Analysen anwenden.
+
+    So profitieren auch ältere Daten von neuen Regeln, ohne neue LLM-Kosten.
+    """
+    geaendert = 0
+    for refnr, tools, skills in storage.alle_listen(con):
+        neue_tools = bereinigung.bereinige_tools(tools)
+        neue_skills = bereinigung.bereinige_skills(skills)
+        if neue_tools != tools or neue_skills != skills:
+            storage.aktualisiere_listen(con, refnr, neue_tools, neue_skills)
+            geaendert += 1
+    return geaendert
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Job-Markt-Pipeline")
     parser.add_argument("--ohne-llm", action="store_true", help="nur Daten abrufen")
@@ -57,6 +72,7 @@ def main() -> None:
     log.info("Neue Anzeigen gespeichert: %s", neu)
     if not args.ohne_llm:
         log.info("Analysiert: %s", schritt_analysieren(con))
+    log.info("Bereinigte Analysen: %s", schritt_bereinigen(con))
     gesamt = con.execute("SELECT count(*) FROM stellen").fetchone()[0]
     log.info("Anzeigen in der Datenbank: %s", gesamt)
     con.close()
