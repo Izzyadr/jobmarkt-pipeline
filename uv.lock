@@ -417,6 +417,7 @@ name = "jobmarkt"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "altair" },
     { name = "anthropic" },
     { name = "duckdb" },
     { name = "pandas" },
@@ -434,6 +435,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "altair", specifier = ">=6.3" },
     { name = "anthropic", specifier = ">=1.15.0" },
     { name = "duckdb", specifier = ">=1.5.6" },
     { name = "pandas", specifier = ">=3.0.6" },
