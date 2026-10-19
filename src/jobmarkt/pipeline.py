@@ -42,7 +42,7 @@ def schritt_analysieren(con) -> int:
             storage.speichere_analyse(con, refnr, analyse.model_dump())
             fertig += 1
         # Eine fehlerhafte Anzeige darf den ganzen Lauf nicht stoppen
-        except (anthropic.APIError, ValidationError, StopIteration) as fehler:
+        except (anthropic.APIError, ValidationError, ValueError) as fehler:
             log.error("Analyse fehlgeschlagen für %s: %s", refnr, fehler)
     return fertig
 
