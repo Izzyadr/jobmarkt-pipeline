@@ -21,6 +21,16 @@ SUCHBEGRIFFE = [
     "Business Intelligence",
     "Prozessautomatisierung",
 ]
+# Nur Anzeigen, deren Titel eines dieser Muster enthält, werden gespeichert
+# und per LLM analysiert. Ohne Filter war über die Hälfte fachfremd
+# (z. B. "Turbine Design Engineer"). Geprüft an 449 Anzeigen: 94 % der
+# passenden bleiben, 54 % der fachfremden fallen weg.
+TITEL_MUSTER = (
+    r"data|daten|analy|\bbi\b|business intelligence|power ?bi|reporting|"
+    r"controll|steuerung|forecast|prognose|planning|fi/co|automati|\brpa\b|"
+    r"etl|\bsql\b|python|machine learning|\bml\b|\bki\b|\bai\b|statisti|"
+    r"dashboard|database|insights|data warehouse|sap bw|datasphere|tableau|qlik"
+)
 ORT = "Düsseldorf"
 UMKREIS_KM = 100
 TAGE_ZURUECK = 7  # nur Anzeigen der letzten 7 Tage

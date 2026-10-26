@@ -5,6 +5,7 @@ Start mit:  uv run python -m jobmarkt.pipeline
 
 import argparse
 import logging
+import re
 
 from jobmarkt import bereinigung, config, fetch, storage
 
@@ -12,17 +13,35 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("pipeline")
 
 
+TITEL_FILTER = re.compile(config.TITEL_MUSTER, re.IGNORECASE)
+
+
+def ist_relevant(titel: str | None) -> bool:
+    """Passt der Titel grob zu einer Data-Rolle? Spart LLM-Kosten für Fachfremdes."""
+    return bool(titel and TITEL_FILTER.search(titel))
+
+
 def schritt_abrufen(con) -> int:
     """Phase 1: neue Anzeigen holen und speichern."""
-    neu = 0
+    neu = fachfremd = doppelt = 0
     for begriff in config.SUCHBEGRIFFE:
         for anzeige in fetch.suche_stellen(begriff):
             stelle = fetch.vereinfache(anzeige, begriff)
             if not stelle["refnr"] or storage.ist_bekannt(con, stelle["refnr"]):
                 continue
+            if not ist_relevant(stelle["titel"]):
+                fachfremd += 1
+                continue
+            if storage.ist_dublette(con, stelle["titel"], stelle["arbeitgeber"]):
+                doppelt += 1
+                continue
             stelle["beschreibung"] = fetch.hole_beschreibung(stelle["refnr"])
+            # Ohne Text nicht speichern, damit der nächste Lauf es erneut versucht
+            if not stelle["beschreibung"]:
+                continue
             storage.speichere_stelle(con, stelle)
             neu += 1
+    log.info("Übersprungen: %s fachfremd, %s neu geschaltet", fachfremd, doppelt)
     return neu
 
 
@@ -73,6 +92,7 @@ def main() -> None:
     if not args.ohne_llm:
         log.info("Analysiert: %s", schritt_analysieren(con))
     log.info("Bereinigte Analysen: %s", schritt_bereinigen(con))
+    log.info("Entfernte Dubletten: %s", storage.entferne_dubletten(con))
     gesamt = con.execute("SELECT count(*) FROM stellen").fetchone()[0]
     log.info("Anzeigen in der Datenbank: %s", gesamt)
     con.close()

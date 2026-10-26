@@ -104,3 +104,57 @@ def test_bereinigung_alter_daten(tmp_path):
     assert pipeline.schritt_bereinigen(con) == 0  # zweiter Lauf: nichts mehr zu tun
     tools = con.execute("SELECT tools FROM analysen").fetchone()[0]
     assert tools == ["Spark", "Fabric"]
+
+
+def test_titel_filter():
+    assert pipeline.ist_relevant("Data Analyst (m/w/d)")
+    assert pipeline.ist_relevant("Senior Controller Unternehmenssteuerung")
+    assert pipeline.ist_relevant("Power BI Entwickler")
+    assert pipeline.ist_relevant("RPA Developer")
+    assert not pipeline.ist_relevant("Turbine Heat Transfer Design Engineer (f/m/d)")
+    assert not pipeline.ist_relevant("Director, Sales Operations DACH")
+    assert not pipeline.ist_relevant(None)
+
+
+def test_dublette_erkannt(tmp_path):
+    con = storage.verbinde(tmp_path / "test.duckdb")
+    storage.speichere_stelle(con, fetch.vereinfache(BEISPIEL, "x"))
+    assert storage.ist_dublette(con, " data analyst (m/w/d)", "BEISPIEL GmbH")
+    assert not storage.ist_dublette(con, "Data Engineer", "Beispiel GmbH")
+    assert not storage.ist_dublette(con, None, "Beispiel GmbH")
+
+
+def test_entferne_dubletten_behaelt_aelteste(tmp_path):
+    con = storage.verbinde(tmp_path / "test.duckdb")
+    alt = fetch.vereinfache(BEISPIEL, "x")
+    neu = alt | {"refnr": "10001-999-S", "veroeffentlicht": "2026-10-20"}
+    storage.speichere_stelle(con, alt)
+    storage.speichere_stelle(con, neu)
+    storage.speichere_analyse(
+        con,
+        "10001-999-S",
+        {
+            "rolle": "Data Analyst",
+            "level": "Junior",
+            "tools": [],
+            "skills": [],
+            "sprachen": [],
+            "remote": "hybrid",
+            "erfahrung_jahre": None,
+        },
+    )
+    assert storage.entferne_dubletten(con) == 1
+    assert storage.entferne_dubletten(con) == 0  # zweiter Lauf: nichts mehr zu tun
+    assert con.execute("SELECT refnr FROM stellen").fetchall() == [("10001-123-S",)]
+    assert con.execute("SELECT count(*) FROM analysen").fetchone()[0] == 0
+
+
+def test_ohne_beschreibung_nicht_gespeichert(tmp_path, monkeypatch):
+    """Fehlt der Volltext, wird die Anzeige beim nächsten Lauf erneut versucht."""
+    monkeypatch.setattr(pipeline.config, "SUCHBEGRIFFE", ["Data Analyst"])
+    monkeypatch.setattr(pipeline.fetch, "suche_stellen", lambda begriff: [BEISPIEL])
+    monkeypatch.setattr(pipeline.fetch, "hole_beschreibung", lambda refnr: None)
+    con = storage.verbinde(tmp_path / "test.duckdb")
+    assert pipeline.schritt_abrufen(con) == 0
+    monkeypatch.setattr(pipeline.fetch, "hole_beschreibung", lambda refnr: "SQL")
+    assert pipeline.schritt_abrufen(con) == 1

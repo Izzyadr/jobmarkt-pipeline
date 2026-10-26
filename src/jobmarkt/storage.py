@@ -48,6 +48,55 @@ def ist_bekannt(con, refnr: str) -> bool:
     )
 
 
+def ist_dublette(con, titel: str | None, arbeitgeber: str | None) -> bool:
+    """Gibt es schon eine Anzeige mit gleichem Titel und Arbeitgeber?
+
+    Firmen schalten dieselbe Stelle oft neu, mit neuer Referenznummer.
+    Groß-/Kleinschreibung und Leerzeichen am Rand zählen nicht.
+    """
+    if not titel or not arbeitgeber:
+        return False
+    return (
+        con.execute(
+            """
+            SELECT 1 FROM stellen
+            WHERE lower(trim(titel)) = lower(trim(?))
+              AND lower(trim(arbeitgeber)) = lower(trim(?))
+            LIMIT 1
+            """,
+            [titel, arbeitgeber],
+        ).fetchone()
+        is not None
+    )
+
+
+def entferne_dubletten(con) -> int:
+    """Löscht neu geschaltete Kopien bereits gespeicherter Anzeigen.
+
+    Pro Titel und Arbeitgeber bleibt die zuerst veröffentlichte Anzeige.
+    Gibt die Anzahl gelöschter Anzeigen zurück.
+    """
+    doppelt = [
+        zeile[0]
+        for zeile in con.execute(
+            """
+            SELECT refnr FROM (
+                SELECT refnr, row_number() OVER (
+                    PARTITION BY lower(trim(titel)), lower(trim(arbeitgeber))
+                    ORDER BY veroeffentlicht, abgerufen_am, refnr
+                ) AS nr
+                FROM stellen
+                WHERE titel IS NOT NULL AND arbeitgeber IS NOT NULL
+            ) WHERE nr > 1
+            """
+        ).fetchall()
+    ]
+    for refnr in doppelt:
+        con.execute("DELETE FROM analysen WHERE refnr = ?", [refnr])
+        con.execute("DELETE FROM stellen WHERE refnr = ?", [refnr])
+    return len(doppelt)
+
+
 def speichere_stelle(con, stelle: dict) -> None:
     """Speichert eine Anzeige. Bereits vorhandene refnr werden ignoriert."""
     con.execute(
