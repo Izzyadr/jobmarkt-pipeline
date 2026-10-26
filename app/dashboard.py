@@ -1,12 +1,18 @@
 """Streamlit-Dashboard. Start mit:  uv run streamlit run app/dashboard.py"""
 
+import os
 from pathlib import Path
 
 import altair as alt
 import duckdb
 import streamlit as st
 
-DB_PFAD = Path(__file__).resolve().parents[1] / "data" / "jobs.duckdb"
+# JOBMARKT_DB erlaubt eine andere Datenbank, z. B. in den Tests
+DB_PFAD = Path(
+    os.getenv(
+        "JOBMARKT_DB", Path(__file__).resolve().parents[1] / "data" / "jobs.duckdb"
+    )
+)
 BA_LINK = "https://www.arbeitsagentur.de/jobsuche/jobdetail/"
 LEVEL = ["Junior", "Mid", "Senior", "Lead", "unbekannt"]
 REMOTE = ["vor Ort", "hybrid", "remote", "unbekannt"]
@@ -25,10 +31,44 @@ def lade(sql: str, params: list | None = None):
         return con.execute(sql, params or []).df()
 
 
+def balken(daten, kategorie: str, wert: str, titel: str):
+    """Horizontales Balkendiagramm, längster Balken oben, Namen nicht abgeschnitten."""
+    return (
+        alt.Chart(daten)
+        .mark_bar()
+        .encode(
+            x=alt.X(f"{wert}:Q", title="Anzeigen", axis=alt.Axis(tickMinStep=1)),
+            y=alt.Y(
+                f"{kategorie}:N", title=None, sort="-x", axis=alt.Axis(labelLimit=260)
+            ),
+            tooltip=[
+                alt.Tooltip(kategorie, title=titel),
+                alt.Tooltip(wert, title="Anzeigen"),
+            ],
+        )
+    )
+
+
+# Einheitliche Firmennamen: "FERCHAU GmbH Niederlassung Köln" wird zu
+# "FERCHAU GmbH", "Deichmann" und "Deichmann SE" werden zusammengefasst.
+# Pro Firma wird die längste Schreibweise angezeigt.
+FIRMEN = r"""SELECT arbeitgeber,
+                    max_by(basis, length(basis)) OVER (PARTITION BY schluessel) AS firma
+             FROM (SELECT arbeitgeber, basis,
+                          lower(regexp_replace(basis,
+                              '\s+(GmbH|mbH|AG|SE|KG|KGaA|UG|e\.V\.)(\s.*)?$', '')
+                          ) AS schluessel
+                   FROM (SELECT DISTINCT arbeitgeber,
+                                regexp_replace(arbeitgeber,
+                                    '\s+(Niederlassung|Standort|Filiale)\s.*$', ''
+                                ) AS basis
+                         FROM stellen WHERE arbeitgeber IS NOT NULL))"""
+
 # Alle Anzeigen mit Analyse. "Essen, Ruhr" wird zu "Essen".
-ALLE = """SELECT s.refnr, s.titel, s.arbeitgeber, s.veroeffentlicht,
-                 split_part(s.ort, ',', 1) AS stadt, a.*
-          FROM analysen a JOIN stellen s USING (refnr)"""
+ALLE = f"""SELECT s.refnr, s.titel, coalesce(f.firma, s.arbeitgeber) AS arbeitgeber,
+                  s.veroeffentlicht, split_part(s.ort, ',', 1) AS stadt, a.*
+           FROM analysen a JOIN stellen s USING (refnr)
+           LEFT JOIN ({FIRMEN}) f ON f.arbeitgeber = s.arbeitgeber"""
 
 # ---------- Filter in der Seitenleiste ----------
 st.sidebar.header("Filter")
@@ -124,7 +164,7 @@ with tab_ueberblick:
         params,
     )
     links.subheader("Meistgefragte Tools")
-    links.bar_chart(tools, x="tool", y="anzahl", horizontal=True, sort="-anzahl")
+    links.altair_chart(balken(tools, "tool", "anzahl", "Tool"), width="stretch")
 
     level_daten = lade(
         f"""WITH {G}
@@ -133,19 +173,53 @@ with tab_ueberblick:
         params + [LEVEL],
     )
     rechts.subheader("Erfahrungslevel")
-    rechts.bar_chart(level_daten, x="level", y="anzahl", sort=False)
+    rechts.altair_chart(
+        alt.Chart(level_daten)
+        .mark_bar()
+        .encode(
+            x=alt.X("level:N", title=None, sort=LEVEL, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("anzahl:Q", title="Anzeigen"),
+            tooltip=[alt.Tooltip("level", title="Level"), "anzahl"],
+        ),
+        width="stretch",
+    )
 
     # Nur die letzten 12 Wochen, weil manche Anzeigen seit Monaten
     # immer wieder neu geschaltet werden (Datum der Erstveröffentlichung)
     trend = lade(
         f"""WITH {G}
-            SELECT date_trunc('week', veroeffentlicht) AS woche, count(*) AS anzeigen
-            FROM g WHERE veroeffentlicht >= current_date - INTERVAL 84 DAY
-            GROUP BY woche ORDER BY woche""",
+            SELECT strftime(date_trunc('week', veroeffentlicht), '%d.%m.') AS woche,
+                   count(*) AS anzeigen
+            FROM g WHERE veroeffentlicht >= date_trunc('week', current_date) - INTERVAL 84 DAY
+                     -- laufende Woche weglassen, sie ist noch unvollständig
+                     AND veroeffentlicht < date_trunc('week', current_date)
+            GROUP BY date_trunc('week', veroeffentlicht)
+            ORDER BY date_trunc('week', veroeffentlicht)""",
         params,
     )
-    st.subheader("Neue Anzeigen pro Woche (letzte 12 Wochen)")
-    st.line_chart(trend, x="woche", y="anzeigen")
+    st.subheader("Anzeigen nach Woche der Erstveröffentlichung")
+    st.altair_chart(
+        alt.Chart(trend)
+        .mark_line(point=True)
+        .encode(
+            # Text statt Datum: so steht genau der Montag jeder Woche an der Achse
+            x=alt.X(
+                "woche:O", title="Woche ab", sort=None, axis=alt.Axis(labelAngle=0)
+            ),
+            y=alt.Y("anzeigen:Q", title="Anzeigen"),
+            tooltip=[
+                alt.Tooltip("woche:O", title="Woche ab"),
+                alt.Tooltip("anzeigen:Q", title="Anzeigen"),
+            ],
+        ),
+        width="stretch",
+    )
+    start = lade("SELECT min(abgerufen_am) AS start FROM stellen").iloc[0]["start"]
+    st.caption(
+        f"Letzte 12 abgeschlossene Wochen. Die Daten werden seit dem {start:%d.%m.%Y} "
+        "gesammelt. Frühere Wochen enthalten nur Anzeigen, die damals erschienen "
+        "und beim Start noch online waren. Sie zeigen also keinen Markttrend."
+    )
 
 # ---------- Tab: Arbeitgeber ----------
 with tab_firmen:
@@ -174,9 +248,17 @@ with tab_firmen:
             .mark_bar()
             .encode(
                 x=alt.X("anzeigen:Q", title="Anzeigen", axis=alt.Axis(tickMinStep=1)),
-                y=alt.Y("arbeitgeber:N", title=None, sort="-x"),
+                y=alt.Y(
+                    "arbeitgeber:N",
+                    title=None,
+                    sort="-x",
+                    axis=alt.Axis(labelLimit=260),
+                ),
                 opacity=alt.condition(klick, alt.value(1.0), alt.value(0.4)),
-                tooltip=["arbeitgeber", "anzeigen"],
+                tooltip=[
+                    alt.Tooltip("arbeitgeber", title="Arbeitgeber"),
+                    alt.Tooltip("anzeigen", title="Anzeigen"),
+                ],
             )
             .add_params(klick)
         )
@@ -231,12 +313,30 @@ with tab_rollen:
     )
     reihenfolge = vergleich.groupby("tool")["anteil"].sum().sort_values().index
     basis = alt.Chart(vergleich).encode(
-        x=alt.X("rolle:N", title=None, axis=alt.Axis(labelAngle=0)),
+        # Zweizeilige Beschriftung oben: "Data Engineer" / "(76)"
+        x=alt.X(
+            "rolle:N",
+            title=None,
+            axis=alt.Axis(
+                orient="top",
+                labelAngle=0,
+                labelLimit=0,
+                labelOverlap=False,
+                labelFlush=False,
+                labelExpr="[split(datum.label, ' (')[0], "
+                "'(' + split(datum.label, ' (')[1]]",
+                labelLineHeight=16,
+            ),
+        ),
         y=alt.Y("tool:N", title=None, sort=list(reversed(reihenfolge))),
     )
     heatmap = basis.mark_rect().encode(
         color=alt.Color("anteil:Q", title="Anteil", legend=alt.Legend(format="%")),
-        tooltip=["rolle", "tool", alt.Tooltip("anteil:Q", format=".0%")],
+        tooltip=[
+            alt.Tooltip("rolle", title="Rolle"),
+            alt.Tooltip("tool", title="Tool"),
+            alt.Tooltip("anteil:Q", title="Anteil", format=".0%"),
+        ],
     )
     werte = basis.mark_text().encode(
         text=alt.Text("anteil:Q", format=".0%"),
@@ -260,7 +360,7 @@ with tab_skills:
         params,
     )
     links.subheader("Meistgefragte Skills")
-    links.bar_chart(skills, x="skill", y="anzahl", horizontal=True, sort="-anzahl")
+    links.altair_chart(balken(skills, "skill", "anzahl", "Skill"), width="stretch")
 
     sprachen = lade(
         f"""WITH {G}
@@ -277,7 +377,10 @@ with tab_skills:
         .encode(
             x=alt.X("anteil:Q", title="Anteil der Anzeigen", axis=alt.Axis(format="%")),
             y=alt.Y("sprache:N", title=None, sort="-x"),
-            tooltip=["sprache", alt.Tooltip("anteil:Q", format=".0%")],
+            tooltip=[
+                alt.Tooltip("sprache", title="Sprache"),
+                alt.Tooltip("anteil:Q", title="Anteil", format=".0%"),
+            ],
         ),
         width="stretch",
     )
@@ -288,13 +391,13 @@ with tab_orte:
     orte = lade(
         f"""WITH {G}
             SELECT stadt, count(*) AS anzeigen,
-                   avg(CASE WHEN remote IN ('remote', 'hybrid') THEN 1 ELSE 0 END)
-                       AS remote_anteil
+                   round(100 * avg(CASE WHEN remote IN ('remote', 'hybrid')
+                                        THEN 1 ELSE 0 END)) AS remote_anteil
             FROM g WHERE stadt IS NOT NULL
             GROUP BY stadt ORDER BY anzeigen DESC LIMIT 15""",
         params,
     )
-    st.bar_chart(orte, x="stadt", y="anzeigen", horizontal=True, sort="-anzeigen")
+    st.altair_chart(balken(orte, "stadt", "anzeigen", "Stadt"), width="stretch")
     st.dataframe(
         orte,
         hide_index=True,
@@ -302,7 +405,7 @@ with tab_orte:
             "stadt": "Stadt",
             "anzeigen": "Anzeigen",
             "remote_anteil": st.column_config.ProgressColumn(
-                "Remote oder hybrid", format="percent", min_value=0, max_value=1
+                "Remote oder hybrid", format="%d %%", min_value=0, max_value=100
             ),
         },
     )
