@@ -33,6 +33,37 @@ TOOL_ALIASE = {
     "postgres": "PostgreSQL",
 }
 
+# Gleiche Skills in verschiedenen Schreibweisen (klein geschrieben) -> ein Name
+SKILL_ALIASE = {
+    "etl": "ETL/ELT",
+    "etl-prozesse": "ETL/ELT",
+    "etl/elt-prozesse": "ETL/ELT",
+    "etl-pipelines": "ETL/ELT",
+    "etl/elt-pipelines": "ETL/ELT",
+    "data pipelines": "Datenpipelines",
+    "stakeholder management": "Stakeholder-Management",
+    "infrastructure-as-code": "Infrastructure as Code",
+    "cloud-architekturen": "Cloud-Architektur",
+    "lakehouse-architekturen": "Lakehouse-Architektur",
+    "software-architektur": "Softwarearchitektur",
+    "kommunikationsstärke": "Kommunikation",
+    "kommunikationsfähigkeit": "Kommunikation",
+    "analytische fähigkeiten": "Analytisches Denken",
+    "analytisches denkvermögen": "Analytisches Denken",
+    "performanceoptimierung": "Performance-Optimierung",
+    "performance-tuning": "Performance-Optimierung",
+    "generative ki": "Generative AI",
+    "data warehouse": "Data Warehousing",
+    "datenqualitätssicherung": "Datenqualität",
+    "datenqualitätsmanagement": "Datenqualität",
+    "datenqualitätsprüfung": "Datenqualität",
+    "dashboards": "Dashboard-Entwicklung",
+    "dashboard-erstellung": "Dashboard-Entwicklung",
+    "reporting und dashboards": "Reporting",
+    "dashboards und reporting": "Reporting",
+    "moderation von workshops": "Workshop-Moderation",
+}
+
 
 def normalisiere(liste: list[str]) -> list[str]:
     """Entfernt Leerzeichen und Dubletten, behält die Reihenfolge."""
@@ -52,4 +83,6 @@ def bereinige_tools(tools: list[str]) -> list[str]:
 
 
 def bereinige_skills(skills: list[str]) -> list[str]:
-    return normalisiere(skills)[:MAX_SKILLS]
+    """Vereinheitlicht Skill-Namen, entfernt Dubletten, begrenzt die Anzahl."""
+    einheitlich = [SKILL_ALIASE.get(s.strip().lower(), s) for s in skills]
+    return normalisiere(einheitlich)[:MAX_SKILLS]

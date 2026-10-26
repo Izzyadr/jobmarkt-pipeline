@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from jobmarkt import fetch, pipeline, storage
-from jobmarkt.bereinigung import bereinige_tools, normalisiere
+from jobmarkt.bereinigung import bereinige_skills, bereinige_tools, normalisiere
 from jobmarkt.extract import StellenAnalyse
 
 # So sieht eine Anzeige in der Antwort der BA-API (v6) aus - gekürzt
@@ -158,3 +158,12 @@ def test_ohne_beschreibung_nicht_gespeichert(tmp_path, monkeypatch):
     assert pipeline.schritt_abrufen(con) == 0
     monkeypatch.setattr(pipeline.fetch, "hole_beschreibung", lambda refnr: "SQL")
     assert pipeline.schritt_abrufen(con) == 1
+
+
+def test_bereinige_skills():
+    roh = ["ETL-Prozesse", "ETL/ELT", "Stakeholder Management", "Kommunikationsstärke"]
+    assert bereinige_skills(roh) == [
+        "ETL/ELT",
+        "Stakeholder-Management",
+        "Kommunikation",
+    ]
